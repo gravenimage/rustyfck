@@ -8,6 +8,7 @@ use std::io::Read;
 use std::char;
 use std::str;
 use std::collections::HashMap;
+use std::option::Option::{Some, None};
 
 use docopt::Docopt;
 
@@ -15,13 +16,13 @@ static USAGE: &'static str = "
 Usage: rustyfck [-b] <source>
 
 Options:
-    -b, --bob   
+    -b, --brackets   
 ";
 
 #[derive(RustcDecodable, Debug)]
 struct Args {
     arg_source: String,
-    flag_bob: bool,
+    flag_brackets: bool,
 }
 
 fn source(filename: &str) -> String {
@@ -41,8 +42,8 @@ enum Op {
     DEC_DEREF_DP,
     OUT_DEREF_DP,
     IN_DEREF_DP,
-    LOOP_BEGIN,
-    LOOP_END
+    LOOP_BEGIN(Option<usize>),
+    LOOP_END(Option<usize>)
 }
 
 fn decode(instructions: &str) -> Vec<Op> {
@@ -54,8 +55,8 @@ fn decode(instructions: &str) -> Vec<Op> {
     lookup.insert('-', Op::DEC_DEREF_DP);
     lookup.insert('.', Op::OUT_DEREF_DP);
     lookup.insert(',', Op::IN_DEREF_DP);
-    lookup.insert('[', Op::LOOP_BEGIN);
-    lookup.insert(']', Op::LOOP_END);
+    lookup.insert('[', Op::LOOP_BEGIN(None));
+    lookup.insert(']', Op::LOOP_END(None));
     for c in instructions.chars() {
         if let Some(op) = lookup.get(&c) {
             decoded.push(op.clone());
@@ -65,10 +66,57 @@ fn decode(instructions: &str) -> Vec<Op> {
     decoded
 }
 
-fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
+fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
+    let mut new_ops = Vec::with_capacity(ops.len());
+    let mut ip: usize = 0;
+    
+    while ip < ops.len() {
+        match ops[ip] {
+            op @ Op::INC_DP | 
+            op @ Op::DEC_DP | 
+            op @ Op::INC_DEREF_DP |
+            op @ Op::DEC_DEREF_DP |
+            op @ Op::OUT_DEREF_DP | 
+            op @ Op::IN_DEREF_DP => {
+                new_ops.push(op)
+            },
+            Op::LOOP_BEGIN(..) => {
+                let mut blevel = 1;
+                let mut end_ip = ip;
+                while blevel > 0 {
+                    end_ip += 1;
+                    match ops[end_ip] {
+                        Op::LOOP_BEGIN(..) => { blevel +=1; },
+                        Op::LOOP_END(..) => { blevel -= 1; },
+                        _ => {}
+                    }
+                }
+                new_ops.push(Op::LOOP_BEGIN(Some(end_ip)));
+            }
+            Op::LOOP_END(..) => {
+                let mut blevel = 1;
+                let mut begin_ip = ip;
+                while blevel > 0 {
+                    begin_ip -= 1;
+                    match ops[begin_ip] {
+                        Op::LOOP_END(..) => { blevel += 1; },
+                        Op::LOOP_BEGIN(..) => { blevel -= 1; },
+                        _ => {}
+                    }
+                }
+                new_ops.push(Op::LOOP_END(Some(begin_ip)));
+            }
+        }
+        ip += 1;
+    }
+    
+    new_ops
+}
+
+fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>) {
     let mut dp: usize = 0;
     let mut ip: usize = 0;
-    let ops = decode(instructions);
+    
     println!("ops.len: {}", ops.len());
     while ip < ops.len() {
         //println!("ip {} dp {} op {:?}", ip, dp, ops[ip]);
@@ -82,7 +130,7 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
                 ip += 1;
             },
             Op::IN_DEREF_DP => { ip += 1 }, // no-op for now
-            Op::LOOP_BEGIN => { 
+            Op::LOOP_BEGIN(None) => { 
                 if mem[dp] != 0 {
                     ip += 1
                 } 
@@ -91,15 +139,23 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
                     while level > 0 {
                         ip +=1 ;
                         level = match ops[ip] {
-                            Op::LOOP_BEGIN => level + 1,
-                            Op::LOOP_END => level - 1,
+                            Op::LOOP_BEGIN(_) => level + 1,
+                            Op::LOOP_END(_) => level - 1,
                             _ => level
                         }
                     }
                     ip +=1 ;    
                 }
             },
-            Op::LOOP_END =>  { 
+            Op::LOOP_BEGIN(Some(matching)) => { 
+                if mem[dp] != 0 {
+                    ip += 1;
+                }
+                else {
+                    ip = matching + 1; 
+                }
+            }
+            Op::LOOP_END(None) =>  { 
                 if mem[dp] == 0 {
                     ip += 1
                 } 
@@ -108,12 +164,20 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
                     while level > 0 {
                         ip -=1 ;
                         level = match ops[ip] {
-                            Op::LOOP_END => level + 1,
-                            Op::LOOP_BEGIN => level - 1,
+                            Op::LOOP_END(_) => level + 1,
+                            Op::LOOP_BEGIN(_) => level - 1,
                             _ => level
                         }
                     }
                     ip +=1 ;    
+                }
+            }
+            Op::LOOP_END(Some(matching)) => {
+                 if mem[dp] == 0 {
+                    ip += 1
+                } 
+                else {
+                    ip = matching + 1;
                 }
             }
         }
@@ -133,5 +197,11 @@ fn main() {
         memory.push(0);
     }
 
-    interpret(&code, &mut memory);
+    let mut ops = decode(&code);
+    // optimize for matching brackets
+    if args.flag_brackets {
+        ops = match_brackets(&ops);
+    }
+
+    interpret(&ops, &mut memory);
 }
