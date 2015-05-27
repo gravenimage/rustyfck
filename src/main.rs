@@ -82,37 +82,39 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
                 ip += 1;
             },
             Op::IN_DEREF_DP => { ip += 1 }, // no-op for now
-            Op::LOOP_BEGIN => { if mem[dp] != 0 {
-                                    ip += 1
-                                } 
-                                else {
-                                    let mut level = 1;
-                                    while level > 0 {
-                                        ip +=1 ;
-                                        level = match ops[ip] {
-                                            Op::LOOP_BEGIN => level + 1,
-                                            Op::LOOP_END => level - 1,
-                                            _ => level
-                                        }
-                                    }
-                                    ip +=1 ;    
-                                }
+            Op::LOOP_BEGIN => { 
+                if mem[dp] != 0 {
+                    ip += 1
+                } 
+                else {
+                    let mut level = 1;
+                    while level > 0 {
+                        ip +=1 ;
+                        level = match ops[ip] {
+                            Op::LOOP_BEGIN => level + 1,
+                            Op::LOOP_END => level - 1,
+                            _ => level
+                        }
+                    }
+                    ip +=1 ;    
+                }
             },
-            Op::LOOP_END =>  { if mem[dp] == 0 {
-                                    ip += 1
-                                } 
-                                else {
-                                    let mut level = 1;
-                                    while level > 0 {
-                                        ip -=1 ;
-                                        level = match ops[ip] {
-                                            Op::LOOP_END => level + 1,
-                                            Op::LOOP_BEGIN => level - 1,
-                                            _ => level
-                                        }
-                                    }
-                                    ip +=1 ;    
-                                }
+            Op::LOOP_END =>  { 
+                if mem[dp] == 0 {
+                    ip += 1
+                } 
+                else {
+                    let mut level = 1;
+                    while level > 0 {
+                        ip -=1 ;
+                        level = match ops[ip] {
+                            Op::LOOP_END => level + 1,
+                            Op::LOOP_BEGIN => level - 1,
+                            _ => level
+                        }
+                    }
+                    ip +=1 ;    
+                }
             }
         }
     }    
