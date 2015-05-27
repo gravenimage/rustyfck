@@ -30,32 +30,21 @@ enum Op {
 
 fn decode(instructions: &str) -> Vec<Op> {
     let mut decoded = Vec::new();
+    let mut lookup = HashMap::new();
+    lookup.insert('>', Op::INC_DP);
+    lookup.insert('<', Op::DEC_DP);
+    lookup.insert('+', Op::INC_DEREF_DP);
+    lookup.insert('-', Op::DEC_DEREF_DP);
+    lookup.insert('.', Op::OUT_DEREF_DP);
+    lookup.insert(',', Op::IN_DEREF_DP);
+    lookup.insert('[', Op::LOOP_BEGIN);
+    lookup.insert(']', Op::LOOP_END);
     for c in instructions.chars() {
-        if (c == '>') {
-            decoded.push(Op::INC_DP);
-        }
-        if (c == '<') {
-            decoded.push(Op::DEC_DP);
-        }
-        if (c == '+') {
-            decoded.push(Op::INC_DEREF_DP);
-        }
-        if (c == '-') {
-            decoded.push(Op::DEC_DEREF_DP);
-        }
-        if (c == '.') {
-            decoded.push(Op::OUT_DEREF_DP);
-        }
-        if (c == ',') {
-            decoded.push(Op::IN_DEREF_DP);
-        }
-        if (c == '[') {
-            decoded.push(Op::LOOP_BEGIN);
-        }
-        if ( c== ']') {
-            decoded.push(Op::LOOP_END);
+        if let Some(op) = lookup.get(&c) {
+            decoded.push(op.clone());
         }
     }
+
     decoded
 }
 
