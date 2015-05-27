@@ -1,3 +1,6 @@
+extern crate rustc_serialize;
+extern crate docopt;
+
 use std::fs::File;
 use std::path::Path;
 use std::io::Result;
@@ -6,10 +9,24 @@ use std::char;
 use std::str;
 use std::collections::HashMap;
 
+use docopt::Docopt;
 
-fn source() -> String {
+static USAGE: &'static str = "
+Usage: rustyfck [-b] <source>
+
+Options:
+    -b, --bob   
+";
+
+#[derive(RustcDecodable, Debug)]
+struct Args {
+    arg_source: String,
+    flag_bob: bool,
+}
+
+fn source(filename: &str) -> String {
     let mut text = String::new();
-    let mut f = File::open(&Path::new("mandelbrot.bf")).ok().expect("Cannot find mandelbrot.bf");
+    let mut f = File::open(&Path::new(filename)).ok().expect("Cannot find input file");
     f.read_to_string(&mut text).ok().expect("Cannot read contents");
    
     text
@@ -103,11 +120,16 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
 
 
 fn main() {
-    println!("Hello, world!");
-    println!("{}", source());
+    let args: Args = Docopt::new(USAGE)
+                            .and_then(|d| d.decode())
+                            .unwrap_or_else(|e| e.exit());
+   
+    let code = source(&args.arg_source);
+
     let mut memory = Vec::with_capacity(10000);
     for _ in 0..10000 {
         memory.push(0);
     }
-    interpret(&source(), &mut memory);
+
+    interpret(&code, &mut memory);
 }
