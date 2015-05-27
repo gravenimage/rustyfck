@@ -4,16 +4,19 @@ use std::io::Result;
 use std::io::Read;
 use std::char;
 use std::str;
+use std::collections::HashMap;
 
 
 fn source() -> String {
     let mut text = String::new();
-    let mut f = File::open(&Path::new("mandelbrot.bf")).ok().expect("Cannot find prog.bf");
+    let mut f = File::open(&Path::new("mandelbrot.bf")).ok().expect("Cannot find mandelbrot.bf");
     f.read_to_string(&mut text).ok().expect("Cannot read contents");
    
     text
 }
 #[derive(Debug)]
+#[derive(Clone)]
+#[derive(Copy)]
 enum Op {
     INC_DP,
     DEC_DP,
