@@ -55,7 +55,7 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
     println!("ops.len: {}", ops.len());
     while ip < ops.len() {
         //println!("ip {} dp {} op {:?}", ip, dp, ops[ip]);
-        match(ops[ip]) {
+        match ops[ip] {
             Op::INC_DP => { dp += 1; ip += 1; } ,
             Op::DEC_DP => { dp -= 1; ip += 1; } ,
             Op::INC_DEREF_DP => { mem[dp] = mem[dp] + 1; ip += 1; }
@@ -65,14 +65,14 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
                 ip += 1;
             },
             Op::IN_DEREF_DP => { ip += 1 }, // no-op for now
-            Op::LOOP_BEGIN => { if (mem[dp] != 0) {
+            Op::LOOP_BEGIN => { if mem[dp] != 0 {
                                     ip += 1
                                 } 
                                 else {
                                     let mut level = 1;
-                                    while (level > 0) {
+                                    while level > 0 {
                                         ip +=1 ;
-                                        level = match(ops[ip]) {
+                                        level = match ops[ip] {
                                             Op::LOOP_BEGIN => level + 1,
                                             Op::LOOP_END => level - 1,
                                             _ => level
@@ -81,14 +81,14 @@ fn interpret( instructions : &str,  mem: &mut Vec<u8>) {
                                     ip +=1 ;    
                                 }
             },
-            Op::LOOP_END =>  { if (mem[dp] == 0) {
+            Op::LOOP_END =>  { if mem[dp] == 0 {
                                     ip += 1
                                 } 
                                 else {
                                     let mut level = 1;
-                                    while  (level > 0) {
+                                    while level > 0 {
                                         ip -=1 ;
-                                        level = match(ops[ip]) {
+                                        level = match ops[ip] {
                                             Op::LOOP_END => level + 1,
                                             Op::LOOP_BEGIN => level - 1,
                                             _ => level
