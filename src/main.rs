@@ -13,16 +13,18 @@ use std::option::Option::{Some, None};
 use docopt::Docopt;
 
 static USAGE: &'static str = "
-Usage: rustyfck [-b] <source>
+Usage: rustyfck [-b -z] <source>
 
 Options:
     -b, --brackets   
+    -z, --zero
 ";
 
 #[derive(RustcDecodable, Debug)]
 struct Args {
     arg_source: String,
     flag_brackets: bool,
+    flag_zero: bool
 }
 
 fn source(filename: &str) -> String {
@@ -43,7 +45,8 @@ enum Op {
     OUT_DEREF_DP,
     IN_DEREF_DP,
     LOOP_BEGIN(Option<usize>),
-    LOOP_END(Option<usize>)
+    LOOP_END(Option<usize>),
+    ZERO
 }
 
 fn decode(instructions: &str) -> Vec<Op> {
@@ -64,6 +67,52 @@ fn decode(instructions: &str) -> Vec<Op> {
     }
 
     decoded
+}
+
+fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
+    let mut new_ops = Vec::with_capacity(ops.len());
+    let mut ip: usize = 0;
+    let mut count = 0;
+    while ip < ops.len() {
+        match ops[ip] {
+            op @ Op::INC_DP | 
+            op @ Op::DEC_DP | 
+            op @ Op::INC_DEREF_DP |
+            op @ Op::DEC_DEREF_DP |
+            op @ Op::OUT_DEREF_DP | 
+            op @ Op::IN_DEREF_DP |
+            op @ Op::LOOP_END(..) => {
+                new_ops.push(op)
+            },
+            Op::LOOP_BEGIN(..) => {
+                let mut elided = false;
+                match ops[ip+1] {
+                    Op::DEC_DEREF_DP => {
+                        match ops[ip+2] {
+                            Op::LOOP_END(..) => {
+                                new_ops.push(Op::ZERO);
+                                elided = true;
+                                count +=1 ;
+                                ip += 2;
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+                if !elided {
+                    new_ops.push(Op::LOOP_BEGIN(None));
+                }
+            },
+            _ => { panic!("Unexpected op") }
+        }
+        ip += 1;
+    }
+    
+    println!("Elided {} zero-loops", count);
+
+    new_ops
+
 }
 
 fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
@@ -92,7 +141,7 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                     }
                 }
                 new_ops.push(Op::LOOP_BEGIN(Some(end_ip)));
-            }
+            },
             Op::LOOP_END(..) => {
                 let mut blevel = 1;
                 let mut begin_ip = ip;
@@ -105,7 +154,8 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                     }
                 }
                 new_ops.push(Op::LOOP_END(Some(begin_ip)));
-            }
+            },
+            _ => {}
         }
         ip += 1;
     }
@@ -116,15 +166,28 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
 fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>) {
     let mut dp: usize = 0;
     let mut ip: usize = 0;
-    
+    println!("ip {} dp {} mem[dp] {} op {:?}", ip, dp, mem[dp], ops[ip]);
+
     println!("ops.len: {}", ops.len());
     while ip < ops.len() {
-        //println!("ip {} dp {} op {:?}", ip, dp, ops[ip]);
+        println!("ip {} dp {} mem[dp] {} op {:?}", ip, dp, mem[dp], ops[ip]);
         match ops[ip] {
-            Op::INC_DP => { dp += 1; ip += 1; } ,
-            Op::DEC_DP => { dp -= 1; ip += 1; } ,
-            Op::INC_DEREF_DP => { mem[dp] = mem[dp] + 1; ip += 1; }
-            Op::DEC_DEREF_DP => { mem[dp] = mem[dp] - 1; ip += 1; }
+            Op::INC_DP => { 
+                dp += 1; 
+                ip += 1; 
+            } ,
+            Op::DEC_DP => { 
+                dp -= 1; 
+                ip += 1; 
+            } ,
+            Op::INC_DEREF_DP => { 
+                mem[dp] = mem[dp].wrapping_add(1); 
+                ip += 1; 
+            }
+            Op::DEC_DEREF_DP => { 
+                mem[dp] = mem[dp].wrapping_sub(1); 
+                ip += 1; 
+            }
             Op::OUT_DEREF_DP => { 
                 print!("{}", mem[dp] as char);
                 ip += 1;
@@ -180,6 +243,10 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>) {
                     ip = matching + 1;
                 }
             }
+            Op::ZERO => {
+                mem[dp] = 0;
+                ip += 1;
+            }
         }
     }    
 }
@@ -192,12 +259,15 @@ fn main() {
    
     let code = source(&args.arg_source);
 
-    let mut memory = Vec::with_capacity(10000);
-    for _ in 0..10000 {
-        memory.push(0);
+    let mut memory = Vec::with_capacity(32000);
+    for _ in 0..32000 {
+        memory.push(0u8);
     }
 
     let mut ops = decode(&code);
+    if args.flag_zero {
+        ops = elide_zeroing_loop(&ops);
+    }
     // optimize for matching brackets
     if args.flag_brackets {
         ops = match_brackets(&ops);
