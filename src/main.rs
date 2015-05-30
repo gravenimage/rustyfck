@@ -13,18 +13,20 @@ use std::option::Option::{Some, None};
 use docopt::Docopt;
 
 static USAGE: &'static str = "
-Usage: rustyfck [-b -z] <source>
+Usage: rustyfck [-d -b -z] <source>
 
 Options:
     -b, --brackets   
     -z, --zero
+    -d, --debug
 ";
 
 #[derive(RustcDecodable, Debug)]
 struct Args {
     arg_source: String,
     flag_brackets: bool,
-    flag_zero: bool
+    flag_zero: bool,
+    flag_debug: bool
 }
 
 fn source(filename: &str) -> String {
@@ -34,6 +36,14 @@ fn source(filename: &str) -> String {
    
     text
 }
+
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum DebuggingLevel {
+    Silent,
+    Verbose
+}
+
 #[derive(Debug)]
 #[derive(Clone)]
 #[derive(Copy)]
@@ -163,14 +173,18 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
     new_ops
 }
 
-fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>) {
+
+fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
     let mut dp: usize = 0;
     let mut ip: usize = 0;
-    println!("ip {} dp {} mem[dp] {} op {:?}", ip, dp, mem[dp], ops[ip]);
-
-    println!("ops.len: {}", ops.len());
+    
+    if (debug > DebuggingLevel::Silent) {
+        println!("ops.len: {}", ops.len());
+    }
     while ip < ops.len() {
-        println!("ip {} dp {} mem[dp] {} op {:?}", ip, dp, mem[dp], ops[ip]);
+        if (debug > DebuggingLevel::Silent) {
+            println!("ip {} dp {} mem[dp] {} op {:?}", ip, dp, mem[dp], ops[ip]);
+        }
         match ops[ip] {
             Op::INC_DP => { 
                 dp += 1; 
@@ -273,5 +287,11 @@ fn main() {
         ops = match_brackets(&ops);
     }
 
-    interpret(&ops, &mut memory);
+    interpret(&ops, &mut memory,  
+              if args.flag_debug  {
+                  DebuggingLevel::Verbose 
+              } 
+              else { 
+                  DebuggingLevel::Silent
+              });
 }
