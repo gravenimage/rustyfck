@@ -11,6 +11,7 @@ use std::io::Read;
 //use std::str;
 use std::collections::HashMap;
 use std::option::Option::{Some, None};
+use std::fmt::Display;
 
 use docopt::Docopt;
 
@@ -61,6 +62,24 @@ enum Op {
     Zero
 }
 
+impl Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            Op::IncDp => write!(f, ">"),
+            Op::DecDp => { write!(f, "<") },
+            Op::IncDerefDp => write!(f,"+"),
+            Op::DecDerefDp => write!(f, "-"),
+            Op::OutDerefDp => write!(f, "."),
+            Op::InDerefDp => write!(f, ","),
+            Op::LoopBegin(None) => write!(f, "["),
+            Op::LoopBegin(Some(i)) => write!(f, "[_{}", i),
+            Op::LoopEnd(None) => write!(f, "]"),
+            Op::LoopEnd(Some(i)) => write!(f, "]_{}", i),
+            Op::Zero => write!(f, "Z"),
+        }
+    }
+}
+
 fn decode(instructions: &str) -> Vec<Op> {
     let mut decoded = Vec::new();
     let mut lookup = HashMap::new();
@@ -84,7 +103,7 @@ fn decode(instructions: &str) -> Vec<Op> {
 fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
     let mut new_ops = Vec::with_capacity(ops.len());
     let mut ip: usize = 0;
-    let mut count = 0;
+
     while ip < ops.len() {
         match ops[ip] {
             op @ Op::IncDp | 
@@ -93,10 +112,10 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
             op @ Op::DecDerefDp |
             op @ Op::OutDerefDp | 
             op @ Op::InDerefDp |
-            op @ Op::LoopEnd(..) => {
+            op @ Op::LoopEnd(None) => {
                 new_ops.push(op)
             },
-            Op::LoopBegin(..) => {
+            Op::LoopBegin(None) => {
                 let mut elided = false;
                 match ops[ip+1] {
                     Op::DecDerefDp => {
@@ -120,11 +139,8 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
         }
         ip += 1;
     }
-    
-    println!("Elided {} zero-loops", count);
 
     new_ops
-
 }
 
 fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
@@ -138,7 +154,8 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
             op @ Op::IncDerefDp |
             op @ Op::DecDerefDp |
             op @ Op::OutDerefDp | 
-            op @ Op::InDerefDp => {
+            op @ Op::InDerefDp |
+            op @ Op::Zero => {
                 new_ops.push(op)
             },
             Op::LoopBegin(..) => {
@@ -167,7 +184,6 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                 }
                 new_ops.push(Op::LoopEnd(Some(begin_ip)));
             },
-            _ => {}
         }
         ip += 1;
     }
@@ -185,7 +201,7 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
     }
     while ip < ops.len() {
         if debug > DebuggingLevel::Silent {
-            println!("ip {} dp {} mem[dp] {} op {:?}", ip, dp, mem[dp], ops[ip]);
+            println!("dp {} mem[dp] {} op {}", dp, mem[dp], ops[ip]);
         }
         match ops[ip] {
             Op::IncDp => { 
@@ -268,25 +284,55 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
 }
 
 
+fn dump_instructions(ops: &Vec<Op>) {
+    let mut indent = 0;
+    for op in ops.iter() {
+        match *op {
+            Op::LoopBegin(_) => { 
+                let indent_str = std::iter::repeat(" ").take(indent).collect::<String>();
+                print!("\n{}", indent_str); 
+                indent += 1;
+            },
+            Op::LoopEnd(_) => {
+                indent -= 1;
+            }
+            _ => {}
+        }
+        
+        print!("{}", op);
+    }
+    println!("");
+}
+
 fn main() {
+    let mem_size = 32000;
     let args: Args = Docopt::new(USAGE)
                             .and_then(|d| d.decode())
                             .unwrap_or_else(|e| e.exit());
    
     let code = source(&args.arg_source);
 
-    let mut memory = Vec::with_capacity(32000);
-    for _ in 0..32000 {
+    let mut memory = Vec::with_capacity(mem_size);
+    for _ in 0..mem_size {
         memory.push(0u8);
     }
 
     let mut ops = decode(&code);
+
+   
     if args.flag_zero {
         ops = elide_zeroing_loop(&ops);
     }
-    // optimize for matching brackets
+    
+    // matching brackets has to be last as it encodes absolute positions
+    
     if args.flag_brackets {
         ops = match_brackets(&ops);
+    }
+
+    if args.flag_debug {
+        println!("Optimized:");
+        dump_instructions(&ops);
     }
 
     interpret(&ops, &mut memory,  
@@ -296,4 +342,14 @@ fn main() {
               else { 
                   DebuggingLevel::Silent
               });
+}
+
+#[test]
+fn always_passes() {
+    assert_eq!(1 + 1, 2);
+}
+
+#[test]
+fn always_fails() {
+    assert!(false);
 }
