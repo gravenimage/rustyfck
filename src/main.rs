@@ -56,8 +56,8 @@ enum DebuggingLevel {
 enum Op {
     IncDp(Option<usize>),
     DecDp(Option<usize>),
-    IncDerefDp,
-    DecDerefDp,
+    IncDerefDp(Option<usize>),
+    DecDerefDp(Option<usize>),
     OutDerefDp,
     InDerefDp,
     LoopBegin(Option<usize>),
@@ -72,8 +72,10 @@ impl Display for Op {
             Op::IncDp(Some(i)) => write!(f, ">_{}", i),
             Op::DecDp(None) =>  write!(f, "<") ,
             Op::DecDp(Some(i)) =>  write!(f, "<_{}", i),
-            Op::IncDerefDp => write!(f,"+"),
-            Op::DecDerefDp => write!(f, "-"),
+            Op::IncDerefDp(None) => write!(f,"+"),
+            Op::IncDerefDp(Some(i)) => write!(f,"+_{}", i),
+            Op::DecDerefDp(None) => write!(f, "-"),
+            Op::DecDerefDp(Some(i)) => write!(f, "-_{}", i),
             Op::OutDerefDp => write!(f, "."),
             Op::InDerefDp => write!(f, ","),
             Op::LoopBegin(None) => write!(f, "["),
@@ -90,8 +92,8 @@ fn decode(instructions: &str) -> Vec<Op> {
     let mut lookup = HashMap::new();
     lookup.insert('>', Op::IncDp(None));
     lookup.insert('<', Op::DecDp(None));
-    lookup.insert('+', Op::IncDerefDp);
-    lookup.insert('-', Op::DecDerefDp);
+    lookup.insert('+', Op::IncDerefDp(None));
+    lookup.insert('-', Op::DecDerefDp(None));
     lookup.insert('.', Op::OutDerefDp);
     lookup.insert(',', Op::InDerefDp);
     lookup.insert('[', Op::LoopBegin(None));
@@ -128,15 +130,23 @@ fn rle(ops: &Vec<Op>) -> Vec<Op> {
                 new_ops.push(Op::IncDp(Some(count)));
                 ip += count;
             }
-
             Op::DecDp(None) => {
                 let count = run_length(Op::DecDp(None), ops, ip);
                 new_ops.push(Op::DecDp(Some(count)));
                 ip += count;
             }
+            Op::IncDerefDp(None) => {
+                let count = run_length(Op::IncDerefDp(None), ops, ip);
+                new_ops.push(Op::IncDerefDp(Some(count)));
+                ip += count;
+            }
+            Op::DecDerefDp(None) => {
+                let count = run_length(Op::DecDerefDp(None), ops, ip);
+                new_ops.push(Op::DecDerefDp(Some(count)));
+                ip += count;
+            }
             op @ _ => { new_ops.push(op); ip += 1;}
         }
-        
     }
     new_ops
 }
@@ -150,8 +160,8 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
         match ops[ip] {
             op @ Op::IncDp(_) | 
             op @ Op::DecDp(_) | 
-            op @ Op::IncDerefDp |
-            op @ Op::DecDerefDp |
+            op @ Op::IncDerefDp(_) |
+            op @ Op::DecDerefDp(_) |
             op @ Op::OutDerefDp | 
             op @ Op::InDerefDp |
             op @ Op::LoopEnd(None) => {
@@ -160,7 +170,7 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
             Op::LoopBegin(None) => {
                 let mut elided = false;
                 match ops[ip+1] {
-                    Op::DecDerefDp => {
+                    Op::DecDerefDp(None) | Op::DecDerefDp(Some(1)) => {
                         match ops[ip+2] {
                             Op::LoopEnd(..) => {
                                 new_ops.push(Op::Zero);
@@ -192,8 +202,8 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
         match ops[ip] {
             op @ Op::IncDp(_) | 
             op @ Op::DecDp(_) | 
-            op @ Op::IncDerefDp |
-            op @ Op::DecDerefDp |
+            op @ Op::IncDerefDp(_) |
+            op @ Op::DecDerefDp(_) |
             op @ Op::OutDerefDp | 
             op @ Op::InDerefDp |
             op @ Op::Zero => {
@@ -261,12 +271,20 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                 dp -= count;
                 ip += 1;
             }
-            Op::IncDerefDp => { 
+            Op::IncDerefDp(None) => { 
                 mem[dp] = mem[dp].wrapping_add(1); 
                 ip += 1; 
             }
-            Op::DecDerefDp => { 
+            Op::IncDerefDp(Some(count)) => { 
+                mem[dp] = mem[dp].wrapping_add(count as u8); 
+                ip += 1; 
+            }
+            Op::DecDerefDp(None) => { 
                 mem[dp] = mem[dp].wrapping_sub(1); 
+                ip += 1; 
+            }
+            Op::DecDerefDp(Some(count)) => { 
+                mem[dp] = mem[dp].wrapping_sub(count as u8); 
                 ip += 1; 
             }
             Op::OutDerefDp => { 
