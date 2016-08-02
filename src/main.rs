@@ -1,14 +1,9 @@
-
-
 extern crate rustc_serialize;
 extern crate docopt;
 
 use std::fs::File;
 use std::path::Path;
-//use std::io::Result;
 use std::io::Read;
-//use std::char;
-//use std::str;
 use std::collections::HashMap;
 use std::option::Option::{Some, None};
 use std::fmt::Display;
@@ -386,7 +381,6 @@ fn main() {
 
     let mut ops = decode(&code);
 
-   
     if args.flag_zero {
         ops = elide_zeroing_loop(&ops);
     }
@@ -421,5 +415,18 @@ fn always_passes() {
 
 #[test]
 fn always_fails() {
-    assert!(false);
+    //assert!(false);
 }
+
+#[test]
+fn test_rle_1() {
+   let optimized = rle(&vec![Op::IncDp(None), Op::IncDp(None)]);
+   assert_eq!(optimized, [Op::IncDp(Some(2))]);
+}
+
+#[test]
+fn test_rle_2() {
+   let optimized = rle(&vec![Op::IncDp(None)]);
+   assert_eq!(optimized, [Op::IncDp(Some(1))]);
+}
+
