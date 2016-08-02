@@ -167,17 +167,7 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
                     new_ops.push(Op::LoopBegin(0));
                 }
             },
-            op @ Op::IncDp(_) | 
-            op @ Op::DecDp(_) | 
-            op @ Op::IncDerefDp(_) |
-            op @ Op::DecDerefDp(_) |
-            op @ Op::OutDerefDp | 
-            op @ Op::InDerefDp |
-            op @ Op::LoopEnd(_) => {
-                new_ops.push(op)
-            },
-            
-            _ => { panic!("Unexpected op") }
+	    op @ _ => { new_ops.push(op) },
         }
         ip += 1;
     }
@@ -191,15 +181,6 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
     
     while ip < ops.len() {
         match ops[ip] {
-            op @ Op::IncDp(_) | 
-            op @ Op::DecDp(_) | 
-            op @ Op::IncDerefDp(_) |
-            op @ Op::DecDerefDp(_) |
-            op @ Op::OutDerefDp | 
-            op @ Op::InDerefDp |
-            op @ Op::Zero => {
-                new_ops.push(op)
-            },
             Op::LoopBegin(..) => {
                 let mut blevel = 1;
                 let mut end_ip = ip;
@@ -226,6 +207,7 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                 }
                 new_ops.push(Op::LoopEnd(begin_ip));
             },
+	    op @ _ => { new_ops.push(op) } 
         }
         ip += 1;
     }
