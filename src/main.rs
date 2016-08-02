@@ -49,34 +49,29 @@ enum DebuggingLevel {
 #[derive(Clone)]
 #[derive(Copy)]
 enum Op {
-    IncDp(Option<usize>),
-    DecDp(Option<usize>),
-    IncDerefDp(Option<usize>),
-    DecDerefDp(Option<usize>),
+    IncDp(usize),
+    DecDp(usize),
+    IncDerefDp(usize),
+    DecDerefDp(usize),
     OutDerefDp,
     InDerefDp,
-    LoopBegin(Option<usize>),
-    LoopEnd(Option<usize>),
+    LoopBegin(usize),
+    LoopEnd(usize),
     Zero
 }
 
 impl Display for Op {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            Op::IncDp(None) => write!(f, ">"),
-            Op::IncDp(Some(i)) => write!(f, ">_{}", i),
-            Op::DecDp(None) =>  write!(f, "<") ,
-            Op::DecDp(Some(i)) =>  write!(f, "<_{}", i),
-            Op::IncDerefDp(None) => write!(f,"+"),
-            Op::IncDerefDp(Some(i)) => write!(f,"+_{}", i),
-            Op::DecDerefDp(None) => write!(f, "-"),
-            Op::DecDerefDp(Some(i)) => write!(f, "-_{}", i),
+            Op::IncDp(i) => write!(f, ">_{}", i),
+            Op::DecDp(i) =>  write!(f, "<_{}", i),
+            Op::IncDerefDp(i) => write!(f,"+_{}", i),
+            Op::DecDerefDp(i) => write!(f, "-_{}", i),
             Op::OutDerefDp => write!(f, "."),
             Op::InDerefDp => write!(f, ","),
-            Op::LoopBegin(None) => write!(f, "["),
-            Op::LoopBegin(Some(i)) => write!(f, "[_{}", i),
-            Op::LoopEnd(None) => write!(f, "]"),
-            Op::LoopEnd(Some(i)) => write!(f, "]_{}", i),
+            Op::LoopBegin(i) => write!(f, "[_{}", i),
+
+            Op::LoopEnd(i) => write!(f, "]_{}", i),
             Op::Zero => write!(f, "Z"),
         }
     }
@@ -85,14 +80,14 @@ impl Display for Op {
 fn decode(instructions: &str) -> Vec<Op> {
     let mut decoded = Vec::new();
     let mut lookup = HashMap::new();
-    lookup.insert('>', Op::IncDp(None));
-    lookup.insert('<', Op::DecDp(None));
-    lookup.insert('+', Op::IncDerefDp(None));
-    lookup.insert('-', Op::DecDerefDp(None));
+    lookup.insert('>', Op::IncDp(1));
+    lookup.insert('<', Op::DecDp(1));
+    lookup.insert('+', Op::IncDerefDp(1));
+    lookup.insert('-', Op::DecDerefDp(1));
     lookup.insert('.', Op::OutDerefDp);
     lookup.insert(',', Op::InDerefDp);
-    lookup.insert('[', Op::LoopBegin(None));
-    lookup.insert(']', Op::LoopEnd(None));
+    lookup.insert('[', Op::LoopBegin(0));
+    lookup.insert(']', Op::LoopEnd(0));
     for c in instructions.chars() {
         if let Some(op) = lookup.get(&c) {
             decoded.push(op.clone());
@@ -120,24 +115,24 @@ fn rle(ops: &Vec<Op>) -> Vec<Op> {
     let mut ip: usize = 0;
     while ip < ops.len() {
         match ops[ip] {
-            Op::IncDp(None) => {
-                let count = run_length(Op::IncDp(None), ops, ip);
-                new_ops.push(Op::IncDp(Some(count)));
+            Op::IncDp(1) => {
+                let count = run_length(Op::IncDp(1), ops, ip);
+                new_ops.push(Op::IncDp(count));
                 ip += count;
             }
-            Op::DecDp(None) => {
-                let count = run_length(Op::DecDp(None), ops, ip);
-                new_ops.push(Op::DecDp(Some(count)));
+            Op::DecDp(1) => {
+                let count = run_length(Op::DecDp(1), ops, ip);
+                new_ops.push(Op::DecDp(count));
                 ip += count;
             }
-            Op::IncDerefDp(None) => {
-                let count = run_length(Op::IncDerefDp(None), ops, ip);
-                new_ops.push(Op::IncDerefDp(Some(count)));
+            Op::IncDerefDp(1) => {
+                let count = run_length(Op::IncDerefDp(1), ops, ip);
+                new_ops.push(Op::IncDerefDp(count));
                 ip += count;
             }
-            Op::DecDerefDp(None) => {
-                let count = run_length(Op::DecDerefDp(None), ops, ip);
-                new_ops.push(Op::DecDerefDp(Some(count)));
+            Op::DecDerefDp(1) => {
+                let count = run_length(Op::DecDerefDp(1), ops, ip);
+                new_ops.push(Op::DecDerefDp(count));
                 ip += count;
             }
             op @ _ => { new_ops.push(op); ip += 1;}
@@ -153,19 +148,10 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
 
     while ip < ops.len() {
         match ops[ip] {
-            op @ Op::IncDp(_) | 
-            op @ Op::DecDp(_) | 
-            op @ Op::IncDerefDp(_) |
-            op @ Op::DecDerefDp(_) |
-            op @ Op::OutDerefDp | 
-            op @ Op::InDerefDp |
-            op @ Op::LoopEnd(None) => {
-                new_ops.push(op)
-            },
-            Op::LoopBegin(None) => {
+	    Op::LoopBegin(0) => {
                 let mut elided = false;
                 match ops[ip+1] {
-                    Op::DecDerefDp(None) | Op::DecDerefDp(Some(1)) => {
+                    Op::DecDerefDp(1) => {
                         match ops[ip+2] {
                             Op::LoopEnd(..) => {
                                 new_ops.push(Op::Zero);
@@ -178,9 +164,19 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
                     _ => {}
                 }
                 if !elided {
-                    new_ops.push(Op::LoopBegin(None));
+                    new_ops.push(Op::LoopBegin(0));
                 }
             },
+            op @ Op::IncDp(_) | 
+            op @ Op::DecDp(_) | 
+            op @ Op::IncDerefDp(_) |
+            op @ Op::DecDerefDp(_) |
+            op @ Op::OutDerefDp | 
+            op @ Op::InDerefDp |
+            op @ Op::LoopEnd(_) => {
+                new_ops.push(op)
+            },
+            
             _ => { panic!("Unexpected op") }
         }
         ip += 1;
@@ -215,7 +211,7 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                         _ => {}
                     }
                 }
-                new_ops.push(Op::LoopBegin(Some(end_ip)));
+                new_ops.push(Op::LoopBegin(end_ip));
             },
             Op::LoopEnd(..) => {
                 let mut blevel = 1;
@@ -228,7 +224,7 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                         _ => {}
                     }
                 }
-                new_ops.push(Op::LoopEnd(Some(begin_ip)));
+                new_ops.push(Op::LoopEnd(begin_ip));
             },
         }
         ip += 1;
@@ -250,35 +246,19 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
             println!("dp {} mem[dp] {} op {}", dp, mem[dp], ops[ip]);
         }
         match ops[ip] {
-            Op::IncDp(None) => { 
-                dp += 1; 
-                ip += 1; 
-            } ,
-            Op::IncDp(Some(count)) => {
+            Op::IncDp(count) => {
                 dp += count;
                 ip += 1;
             }
-            Op::DecDp(None) => { 
-                dp -= 1; 
-                ip += 1; 
-            } ,
-            Op::DecDp(Some(count)) => {
+            Op::DecDp(count) => {
                 dp -= count;
                 ip += 1;
             }
-            Op::IncDerefDp(None) => { 
-                mem[dp] = mem[dp].wrapping_add(1); 
-                ip += 1; 
-            }
-            Op::IncDerefDp(Some(count)) => { 
+            Op::IncDerefDp(count) => { 
                 mem[dp] = mem[dp].wrapping_add(count as u8); 
                 ip += 1; 
             }
-            Op::DecDerefDp(None) => { 
-                mem[dp] = mem[dp].wrapping_sub(1); 
-                ip += 1; 
-            }
-            Op::DecDerefDp(Some(count)) => { 
+            Op::DecDerefDp(count) => { 
                 mem[dp] = mem[dp].wrapping_sub(count as u8); 
                 ip += 1; 
             }
@@ -287,7 +267,8 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                 ip += 1;
             },
             Op::InDerefDp => { ip += 1 }, // no-op for now
-            Op::LoopBegin(None) => { 
+	    
+            Op::LoopBegin(0) => { 
                 if mem[dp] != 0 {
                     ip += 1
                 } 
@@ -304,7 +285,8 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                     ip +=1 ;    
                 }
             },
-            Op::LoopBegin(Some(matching)) => { 
+	    
+            Op::LoopBegin(matching) => { 
                 if mem[dp] != 0 {
                     ip += 1;
                 }
@@ -312,7 +294,7 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                     ip = matching + 1; 
                 }
             }
-            Op::LoopEnd(None) =>  { 
+            Op::LoopEnd(0) =>  { 
                 if mem[dp] == 0 {
                     ip += 1
                 } 
@@ -329,7 +311,7 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                     ip +=1 ;    
                 }
             }
-            Op::LoopEnd(Some(matching)) => {
+            Op::LoopEnd(matching) => {
                  if mem[dp] == 0 {
                     ip += 1
                 } 
@@ -420,13 +402,13 @@ fn always_fails() {
 
 #[test]
 fn test_rle_1() {
-   let optimized = rle(&vec![Op::IncDp(None), Op::IncDp(None)]);
-   assert_eq!(optimized, [Op::IncDp(Some(2))]);
+   let optimized = rle(&vec![Op::IncDp(1), Op::IncDp(1)]);
+   assert_eq!(optimized, [Op::IncDp(2)]);
 }
 
 #[test]
 fn test_rle_2() {
-   let optimized = rle(&vec![Op::IncDp(None)]);
-   assert_eq!(optimized, [Op::IncDp(Some(1))]);
+   let optimized = rle(&vec![Op::IncDp(1)]);
+   assert_eq!(optimized, [Op::IncDp(1)]);
 }
 
