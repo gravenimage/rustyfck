@@ -3,6 +3,12 @@ name = "rustyfck"
 version = "0.1.0"
 authors = ["James Goldwater <james.goldwater@gmail.com>"]
 
+
 [dependencies]
 docopt = "*"
 rustc-serialize = "*"  # if you're using `derive(RustcDecodable)`
+
+[profile.release]
+debug = true
+
+
