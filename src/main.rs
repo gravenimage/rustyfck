@@ -55,8 +55,8 @@ enum Op {
     DecDerefDp(usize),
     OutDerefDp,
     InDerefDp,
-    LoopBegin(usize),
-    LoopEnd(usize),
+    LoopBegin(Option<usize>),
+    LoopEnd(Option<usize>),
     Zero
 }
 
@@ -69,9 +69,10 @@ impl Display for Op {
             Op::DecDerefDp(i) => write!(f, "-_{}", i),
             Op::OutDerefDp => write!(f, "."),
             Op::InDerefDp => write!(f, ","),
-            Op::LoopBegin(i) => write!(f, "[_{}", i),
-
-            Op::LoopEnd(i) => write!(f, "]_{}", i),
+	    Op::LoopBegin(None) => write!(f, "["),
+            Op::LoopBegin(Some(i)) => write!(f, "[_{}", i),
+            Op::LoopEnd(Some(i)) => write!(f, "]_{}", i),
+	    Op::LoopEnd(None) => write!(f, "]"),
             Op::Zero => write!(f, "Z"),
         }
     }
@@ -86,8 +87,8 @@ fn decode(instructions: &str) -> Vec<Op> {
     lookup.insert('-', Op::DecDerefDp(1));
     lookup.insert('.', Op::OutDerefDp);
     lookup.insert(',', Op::InDerefDp);
-    lookup.insert('[', Op::LoopBegin(0));
-    lookup.insert(']', Op::LoopEnd(0));
+    lookup.insert('[', Op::LoopBegin(None));
+    lookup.insert(']', Op::LoopEnd(None));
     for c in instructions.chars() {
         if let Some(op) = lookup.get(&c) {
             decoded.push(op.clone());
@@ -148,7 +149,7 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
 
     while ip < ops.len() {
         match ops[ip] {
-	    Op::LoopBegin(0) => {
+	    Op::LoopBegin(None) => {
                 let mut elided = false;
                 match ops[ip+1] {
                     Op::DecDerefDp(1) => {
@@ -164,7 +165,7 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
                     _ => {}
                 }
                 if !elided {
-                    new_ops.push(Op::LoopBegin(0));
+                    new_ops.push(Op::LoopBegin(None));
                 }
             },
 	    op @ _ => { new_ops.push(op) },
@@ -192,7 +193,7 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                         _ => {}
                     }
                 }
-                new_ops.push(Op::LoopBegin(end_ip));
+                new_ops.push(Op::LoopBegin(Some(end_ip)));
             },
             Op::LoopEnd(..) => {
                 let mut blevel = 1;
@@ -205,7 +206,7 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                         _ => {}
                     }
                 }
-                new_ops.push(Op::LoopEnd(begin_ip));
+                new_ops.push(Op::LoopEnd(Some(begin_ip)));
             },
 	    op @ _ => { new_ops.push(op) } 
         }
@@ -250,7 +251,7 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
             },
             Op::InDerefDp => { ip += 1 }, // no-op for now
 	    
-            Op::LoopBegin(0) => { 
+            Op::LoopBegin(None) => { 
                 if mem[dp] != 0 {
                     ip += 1
                 } 
@@ -268,7 +269,7 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                 }
             },
 	    
-            Op::LoopBegin(matching) => { 
+            Op::LoopBegin(Some(matching)) => { 
                 if mem[dp] != 0 {
                     ip += 1;
                 }
@@ -276,7 +277,7 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                     ip = matching + 1; 
                 }
             }
-            Op::LoopEnd(0) =>  { 
+            Op::LoopEnd(None) =>  { 
                 if mem[dp] == 0 {
                     ip += 1
                 } 
@@ -293,7 +294,7 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
                     ip +=1 ;    
                 }
             }
-            Op::LoopEnd(matching) => {
+            Op::LoopEnd(Some(matching)) => {
                  if mem[dp] == 0 {
                     ip += 1
                 } 
