@@ -1,9 +1,12 @@
-use std::fs::File;
-use std::path::Path;
-use std::io::Read;
+#[macro_use]
+extern crate lazy_static;
+
 use std::collections::HashMap;
-use std::option::Option::{Some, None};
 use std::fmt::Display;
+use std::fs::File;
+use std::io::Read;
+use std::option::Option::{None, Some};
+use std::path::Path;
 
 use docopt::Docopt;
 use serde::Deserialize;
@@ -24,28 +27,16 @@ struct Args {
     flag_brackets: bool,
     flag_zero: bool,
     flag_debug: bool,
-    flag_rle: bool
+    flag_rle: bool,
 }
-
-fn source(filename: &str) -> String {
-    let mut text = String::new();
-    let mut f = File::open(&Path::new(filename)).ok().expect("Cannot find input file");
-    f.read_to_string(&mut text).ok().expect("Cannot read contents");
-
-    text
-}
-
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum DebuggingLevel {
     Silent,
-    Verbose
+    Verbose,
 }
 
-#[derive(PartialEq)]
-#[derive(Debug)]
-#[derive(Clone)]
-#[derive(Copy)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 enum Op {
     IncDp(usize),
     DecDp(usize),
@@ -55,40 +46,73 @@ enum Op {
     InDerefDp,
     LoopBegin(Option<usize>),
     LoopEnd(Option<usize>),
-    Zero
+    Zero,
+}
+
+#[derive(thiserror::Error, Debug)]
+enum Error {
+    #[error("file not found")]
+    SourceError(std::io::Error),
+    #[error("args error")]
+    ArgsError(docopt::Error)
+}
+
+impl std::convert::From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::SourceError(err)
+    }
+}
+
+impl std::convert::From<docopt::Error> for Error {
+    fn from(err: docopt::Error) -> Self {
+        Error::ArgsError(err)
+    }
+}
+
+lazy_static! {
+    static ref OPS: HashMap<char, Op> = [
+        ('>', Op::IncDp(1)),
+        ('<', Op::DecDp(1)),
+        ('+', Op::IncDerefDp(1)),
+        ('-', Op::DecDerefDp(1)),
+        ('.', Op::OutDerefDp),
+        (',', Op::InDerefDp),
+        ('[', Op::LoopBegin(None)),
+        (']', Op::LoopEnd(None))
+    ]
+    .iter()
+    .copied()
+    .collect();
 }
 
 impl Display for Op {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
             Op::IncDp(i) => write!(f, ">_{}", i),
-            Op::DecDp(i) =>  write!(f, "<_{}", i),
-            Op::IncDerefDp(i) => write!(f,"+_{}", i),
+            Op::DecDp(i) => write!(f, "<_{}", i),
+            Op::IncDerefDp(i) => write!(f, "+_{}", i),
             Op::DecDerefDp(i) => write!(f, "-_{}", i),
             Op::OutDerefDp => write!(f, "."),
             Op::InDerefDp => write!(f, ","),
-	    Op::LoopBegin(None) => write!(f, "["),
+            Op::LoopBegin(None) => write!(f, "["),
             Op::LoopBegin(Some(i)) => write!(f, "[_{}", i),
             Op::LoopEnd(Some(i)) => write!(f, "]_{}", i),
-	    Op::LoopEnd(None) => write!(f, "]"),
+            Op::LoopEnd(None) => write!(f, "]"),
             Op::Zero => write!(f, "Z"),
         }
     }
 }
 
+fn source(filename: &str) -> Result<String, Error> {
+    let mut text = String::new();
+    File::open(&Path::new(filename))?.read_to_string(&mut text)?;
+    Ok(text)
+}
+
 fn decode(instructions: &str) -> Vec<Op> {
     let mut decoded = Vec::new();
-    let mut lookup = HashMap::new();
-    lookup.insert('>', Op::IncDp(1));
-    lookup.insert('<', Op::DecDp(1));
-    lookup.insert('+', Op::IncDerefDp(1));
-    lookup.insert('-', Op::DecDerefDp(1));
-    lookup.insert('.', Op::OutDerefDp);
-    lookup.insert(',', Op::InDerefDp);
-    lookup.insert('[', Op::LoopBegin(None));
-    lookup.insert(']', Op::LoopEnd(None));
     for c in instructions.chars() {
-        if let Some(op) = lookup.get(&c) {
+        if let Some(op) = OPS.get(&c) {
             decoded.push(op.clone());
         }
     }
@@ -134,12 +158,14 @@ fn rle(ops: &Vec<Op>) -> Vec<Op> {
                 new_ops.push(Op::DecDerefDp(count));
                 ip += count;
             }
-            op @ _ => { new_ops.push(op); ip += 1;}
+            op @ _ => {
+                new_ops.push(op);
+                ip += 1;
+            }
         }
     }
     new_ops
 }
-
 
 fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
     let mut new_ops = Vec::with_capacity(ops.len());
@@ -147,26 +173,24 @@ fn elide_zeroing_loop(ops: &Vec<Op>) -> Vec<Op> {
 
     while ip < ops.len() {
         match ops[ip] {
-	    Op::LoopBegin(None) => {
+            Op::LoopBegin(None) => {
                 let mut elided = false;
-                match ops[ip+1] {
-                    Op::DecDerefDp(1) => {
-                        match ops[ip+2] {
-                            Op::LoopEnd(..) => {
-                                new_ops.push(Op::Zero);
-                                elided = true;
-                                ip += 2;
-                            }
-                            _ => {}
+                match ops[ip + 1] {
+                    Op::DecDerefDp(1) => match ops[ip + 2] {
+                        Op::LoopEnd(..) => {
+                            new_ops.push(Op::Zero);
+                            elided = true;
+                            ip += 2;
                         }
-                    }
+                        _ => {}
+                    },
                     _ => {}
                 }
                 if !elided {
                     new_ops.push(Op::LoopBegin(None));
                 }
-            },
-	    op @ _ => { new_ops.push(op) },
+            }
+            op @ _ => new_ops.push(op),
         }
         ip += 1;
     }
@@ -186,27 +210,35 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
                 while blevel > 0 {
                     end_ip += 1;
                     match ops[end_ip] {
-                        Op::LoopBegin(..) => { blevel +=1; },
-                        Op::LoopEnd(..) => { blevel -= 1; },
+                        Op::LoopBegin(..) => {
+                            blevel += 1;
+                        }
+                        Op::LoopEnd(..) => {
+                            blevel -= 1;
+                        }
                         _ => {}
                     }
                 }
                 new_ops.push(Op::LoopBegin(Some(end_ip)));
-            },
+            }
             Op::LoopEnd(..) => {
                 let mut blevel = 1;
                 let mut begin_ip = ip;
                 while blevel > 0 {
                     begin_ip -= 1;
                     match ops[begin_ip] {
-                        Op::LoopEnd(..) => { blevel += 1; },
-                        Op::LoopBegin(..) => { blevel -= 1; },
+                        Op::LoopEnd(..) => {
+                            blevel += 1;
+                        }
+                        Op::LoopBegin(..) => {
+                            blevel -= 1;
+                        }
                         _ => {}
                     }
                 }
                 new_ops.push(Op::LoopEnd(Some(begin_ip)));
-            },
-	    op @ _ => { new_ops.push(op) }
+            }
+            op @ _ => new_ops.push(op),
         }
         ip += 1;
     }
@@ -214,8 +246,7 @@ fn match_brackets(ops: &Vec<Op>) -> Vec<Op> {
     new_ops
 }
 
-
-fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
+fn interpret(ops: &Vec<Op>, mem: &mut Vec<u8>, debug: DebuggingLevel) {
     let mut dp: usize = 0;
     let mut ip: usize = 0;
 
@@ -246,57 +277,53 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
             Op::OutDerefDp => {
                 print!("{}", mem[dp] as char);
                 ip += 1;
-            },
-            Op::InDerefDp => { ip += 1 }, // no-op for now
+            }
+            Op::InDerefDp => ip += 1, // no-op for now
 
             Op::LoopBegin(None) => {
                 if mem[dp] != 0 {
                     ip += 1
-                }
-                else {
+                } else {
                     let mut level = 1;
                     while level > 0 {
-                        ip +=1 ;
+                        ip += 1;
                         level = match ops[ip] {
                             Op::LoopBegin(_) => level + 1,
                             Op::LoopEnd(_) => level - 1,
-                            _ => level
+                            _ => level,
                         }
                     }
-                    ip +=1 ;
+                    ip += 1;
                 }
-            },
+            }
 
             Op::LoopBegin(Some(matching)) => {
                 if mem[dp] != 0 {
                     ip += 1;
-                }
-                else {
+                } else {
                     ip = matching + 1;
                 }
             }
-            Op::LoopEnd(None) =>  {
+            Op::LoopEnd(None) => {
                 if mem[dp] == 0 {
                     ip += 1
-                }
-                else {
+                } else {
                     let mut level = 1;
                     while level > 0 {
-                        ip -=1 ;
+                        ip -= 1;
                         level = match ops[ip] {
                             Op::LoopEnd(_) => level + 1,
                             Op::LoopBegin(_) => level - 1,
-                            _ => level
+                            _ => level,
                         }
                     }
-                    ip +=1 ;
+                    ip += 1;
                 }
             }
             Op::LoopEnd(Some(matching)) => {
-                 if mem[dp] == 0 {
+                if mem[dp] == 0 {
                     ip += 1
-                }
-                else {
+                } else {
                     ip = matching + 1;
                 }
             }
@@ -308,7 +335,6 @@ fn interpret( ops: &Vec<Op>,  mem: &mut Vec<u8>, debug: DebuggingLevel) {
     }
 }
 
-
 fn dump_instructions(ops: &Vec<Op>) {
     let mut indent = 0;
     for op in ops.iter() {
@@ -317,7 +343,7 @@ fn dump_instructions(ops: &Vec<Op>) {
                 let indent_str = std::iter::repeat(" ").take(indent).collect::<String>();
                 print!("\n{}", indent_str);
                 indent += 1;
-            },
+            }
             Op::LoopEnd(_) => {
                 indent -= 1;
             }
@@ -329,15 +355,14 @@ fn dump_instructions(ops: &Vec<Op>) {
     println!("");
 }
 
-fn main() {
+fn main() -> Result<(), Error> {
     let mem_size = 32000;
     let args = Docopt::new(USAGE)
         .and_then(|d| d.parse())
         .unwrap_or_else(|e| e.exit())
-        .deserialize::<Args>()
-        .unwrap();
+        .deserialize::<Args>()?;
 
-    let code = source(&args.arg_source);
+    let code = source(&args.arg_source)?;
 
     let mut memory = Vec::with_capacity(mem_size);
     for _ in 0..mem_size {
@@ -364,13 +389,16 @@ fn main() {
         dump_instructions(&ops);
     }
 
-    interpret(&ops, &mut memory,
-              if args.flag_debug  {
-                  DebuggingLevel::Verbose
-              }
-              else {
-                  DebuggingLevel::Silent
-              });
+    interpret(
+        &ops,
+        &mut memory,
+        if args.flag_debug {
+            DebuggingLevel::Verbose
+        } else {
+            DebuggingLevel::Silent
+        },
+    );
+    Ok(())
 }
 
 #[test]
@@ -385,12 +413,12 @@ fn always_fails() {
 
 #[test]
 fn test_rle_1() {
-   let optimized = rle(&vec![Op::IncDp(1), Op::IncDp(1)]);
-   assert_eq!(optimized, [Op::IncDp(2)]);
+    let optimized = rle(&vec![Op::IncDp(1), Op::IncDp(1)]);
+    assert_eq!(optimized, [Op::IncDp(2)]);
 }
 
 #[test]
 fn test_rle_2() {
-   let optimized = rle(&vec![Op::IncDp(1)]);
-   assert_eq!(optimized, [Op::IncDp(1)]);
+    let optimized = rle(&vec![Op::IncDp(1)]);
+    assert_eq!(optimized, [Op::IncDp(1)]);
 }

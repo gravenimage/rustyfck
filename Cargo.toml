@@ -7,6 +7,8 @@ edition= "2021"
 [dependencies]
 docopt = "*"
 serde = "*"
+lazy_static = "*"
+thiserror = "*"
 
 
 [profile.release]
