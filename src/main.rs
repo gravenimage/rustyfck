@@ -331,9 +331,11 @@ fn dump_instructions(ops: &Vec<Op>) {
 
 fn main() {
     let mem_size = 32000;
-    let args = Docopt::new(USAGE).unwrap().parse().unwrap().deserialize::<Args>().unwrap();
-                            // .and_then(|d| d.argv(arg)s//d.argv(argv().into_iter()).deserialize())
-                            // .unwrap_or_else(|e| e.exit());
+    let args = Docopt::new(USAGE)
+        .and_then(|d| d.parse())
+        .unwrap_or_else(|e| e.exit())
+        .deserialize::<Args>()
+        .unwrap();
 
     let code = source(&args.arg_source);
 
